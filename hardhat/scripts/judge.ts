@@ -94,13 +94,18 @@ export function buildJudgePrompt(params: {
 }
 
 /**
- * Real Ritual LLM inference request tuple. This 30-field layout mirrors the
- * request struct the LLM precompile (0x0802) consumes; only this constant and
- * `buildJudgeAllLlmInput` need to change if Ritual publishes a revised ABI.
+ * Real Ritual LLM inference request tuple. This 30-element layout is the
+ * authoritative ABI published at docs.ritual.net (LLM Inference reference); the
+ * precompile mirrors the OpenAI chat-completion request.
  */
 const LLM_REQUEST_PARAMS = parseAbiParameters(
   "address, bytes[], uint256, bytes[], bytes, string, string, int256, string, bool, int256, string, string, uint256, bool, int256, string, bytes, int256, string, string, bool, int256, bytes, bytes, int256, int256, string, bool, (string,string,string)",
 );
+
+/** StorageRef (platform, path, secretsName). Ritual requires convoHistory on
+ *  every LLM call; "inline" persists nothing and needs no cloud credentials. */
+export type StorageRef = [platform: string, path: string, secretsName: string];
+export const NO_CONVO_HISTORY: StorageRef = ["inline", "", ""];
 
 /**
  * Encode the `bytes llmInput` argument for judgeAll(bountyId, llmInput).
@@ -108,6 +113,7 @@ const LLM_REQUEST_PARAMS = parseAbiParameters(
  * @param executorAddress Ritual TEE executor that runs the inference.
  * @param encryptedSecrets For the sealed/advanced track: ciphertext private
  *        inputs decrypted inside the TEE. Empty for the commit-reveal track.
+ * @param convoHistory Required StorageRef (defaults to inline/no-persistence).
  */
 export function buildJudgeAllLlmInput(params: {
   executorAddress: Address;
@@ -115,6 +121,7 @@ export function buildJudgeAllLlmInput(params: {
   rubric: string;
   submissions: JudgeSubmission[];
   encryptedSecrets?: Hex[];
+  convoHistory?: StorageRef;
 }): Hex {
   const prompt = buildJudgePrompt(params);
   const messages = JSON.stringify([
@@ -123,36 +130,36 @@ export function buildJudgeAllLlmInput(params: {
   ]);
 
   return encodeAbiParameters(LLM_REQUEST_PARAMS, [
-    params.executorAddress,
-    params.encryptedSecrets ?? [], // encryptedSecrets (TEE private inputs)
-    300n, // secrets TTL in blocks
-    [], // secretSignatures
-    "0x", // userPublicKey
-    messages, // chat messages (system + batch user prompt)
-    JUDGE_MODEL, // model
-    0n, // frequencyPenalty
-    "", // logitBiasJson
-    false, // logprobs
-    8192n, // maxCompletionTokens
-    "", // metadataJson
-    "", // modalitiesJson
-    1n, // n
-    false, // parallelToolCalls
-    0n, // presencePenalty
-    "low", // reasoningEffort
-    "0x", // responseFormatData
-    -1n, // seed
-    "", // serviceTier
-    "", // stopJson
-    false, // stream
-    100n, // temperature x1000 (0.1)
-    "0x", // toolChoiceData
-    "0x", // toolsData
-    -1n, // topLogprobs
-    1000n, // topP x1000 (1.0)
-    "", // user
-    false, // piiEnabled
-    ["", "", ""], // convoHistory (storageType, path, secretsName)
+    params.executorAddress, //  0: executor
+    params.encryptedSecrets ?? [], //  1: encryptedSecrets (TEE private inputs)
+    30n, //  2: ttl in blocks
+    [], //  3: secretSignatures
+    "0x", //  4: userPublicKey (empty = plaintext)
+    messages, //  5: messagesJson (system + batch user prompt)
+    JUDGE_MODEL, //  6: model
+    0n, //  7: frequencyPenalty
+    "", //  8: logitBiasJson
+    false, //  9: logprobs
+    1024n, // 10: maxCompletionTokens
+    "", // 11: metadataJson
+    "", // 12: modalitiesJson
+    1n, // 13: n
+    false, // 14: parallelToolCalls
+    0n, // 15: presencePenalty
+    "", // 16: reasoningEffort
+    "0x", // 17: responseFormatData
+    -1n, // 18: seed
+    "", // 19: serviceTier
+    "", // 20: stopJson
+    false, // 21: stream
+    100n, // 22: temperature x1000 (0.1, low = stable judging)
+    "0x", // 23: toolChoiceData
+    "0x", // 24: toolsData
+    -1n, // 25: topLogprobs
+    1000n, // 26: topP x1000 (1.0)
+    "", // 27: user
+    false, // 28: piiEnabled
+    params.convoHistory ?? NO_CONVO_HISTORY, // 29: convoHistory (required)
   ]);
 }
 
@@ -163,7 +170,7 @@ function isMain(): boolean {
   return (
     typeof process !== "undefined" &&
     Array.isArray(process.argv) &&
-    /judge\.ts$/.test(process.argv[1] ?? "")
+    /(^|\/)judge\.ts$/.test(process.argv[1] ?? "")
   );
 }
 
