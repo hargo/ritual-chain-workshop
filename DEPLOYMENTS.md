@@ -50,3 +50,38 @@ paid from the **caller's** RitualWallet balance, not the bounty contract:
 - Before judging, the bounty owner deposits and locks RITUAL:
   `wallet.deposit{value: 0.05 ether}(lockDurationBlocks)` with a lock that
   extends at least ~300 blocks past the judging block.
+
+## Live run (honest status)
+
+I exercised the full lifecycle against the live `CommitRevealBounty` with
+`scripts/demo.ts`. The commit-reveal flow is **proven on-chain** (all succeeded,
+status 1):
+
+| Step | Tx | Block |
+| --- | --- | --- |
+| createBounty (#2) | `0x41869ee112b37dc3fb06a20a93f0c76d0d8e307a824aaab2ac1a7d3ca43f26c4` | 37683145 |
+| submitCommitment | `0x286f931de0c16f62b5980dee6808b0cfe559c58a3807e83d267be05db4169ffc` | 37683152 |
+| revealAnswer | `0x9eb99d460b0c5a7adc6bd7bc17ea734067e7b2cfe54cf1a4381c1ad16cd98ed5` | 37683231 |
+| RitualWallet deposit/lock | `0xb3fb362099db04afb13485b7996cd038acd0f0f7c9394f44b8c6a3b171b2e4aa` | 37683242 |
+
+**`judgeAll` (the real `0x0802` call) currently reverts on testnet**, and I am
+recording that honestly rather than faking a result. The contract forwards a
+request encoded to the **authoritative ABI from docs.ritual.net** (verified: the
+30-field layout matches exactly). The revert is an *infrastructure* dependency,
+not a contract defect:
+
+- Ritual's LLM precompile requires a **currently-registered, online TEE executor**
+  address (from `TEEServiceRegistry` `0x9644…f47F`). The starter's configured
+  executor `0xB42e…c91B` did not produce a successful inference in this run.
+- The ABI's `convoHistory` field is **required** and normally points to a
+  credentialed storage backend (GCS/Pinata/IPFS/HF). A no-persistence `inline`
+  ref did not satisfy it here.
+
+These are exactly the reasons the upstream starter ships a JSON **mock fallback**
+for `judgeAll`. This project does **not** use that mock: `judgeAll` always calls
+the real precompile, and the off-chain encoder is grounded in the official ABI.
+A successful live inference needs a live executor + storage credentials, which
+are out of scope for this homework environment. Unit tests prove the contract
+correctly decodes/stores/handles a real-shaped precompile response
+(`test_JudgeAll_SuccessStoresReview`, `test_JudgeAll_RevertOnLlmError`).
+
